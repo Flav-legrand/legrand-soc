@@ -1,0 +1,4 @@
+# Pile officielle clonée par setup.sh (certificats générés localement)
+wazuh-docker/
+preuves/
+*.sarif

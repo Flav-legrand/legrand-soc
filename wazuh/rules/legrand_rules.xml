@@ -1,0 +1,138 @@
+<!--
+  Legrand SOC — règles de détection personnalisées pour Wazuh 4.x
+  Plage d'identifiants réservée : 100100 à 100199
+  Chaque règle est rattachée à une technique MITRE ATTACK.
+  Validation : docker exec -it single-node-wazuh.manager-1 /var/ossec/bin/wazuh-logtest
+               (échantillons dans wazuh/logtest/echantillons.log)
+-->
+
+<!-- ===================== Journal applicatif Legrand$ (JSON) ===================== -->
+<group name="legrand,application,">
+
+  <rule id="100100" level="0">
+    <decoded_as>json</decoded_as>
+    <field name="app">^legrand-bank$</field>
+    <description>Legrand$ : événement applicatif</description>
+  </rule>
+
+  <rule id="100101" level="5">
+    <if_sid>100100</if_sid>
+    <field name="event">^login_failed$</field>
+    <description>Legrand$ : échec d'authentification client ($(srcuser)) depuis $(srcip)</description>
+    <mitre><id>T1110</id></mitre>
+    <group>authentication_failed,</group>
+  </rule>
+
+  <rule id="100102" level="10" frequency="6" timeframe="120">
+    <if_matched_sid>100101</if_matched_sid>
+    <same_srcip />
+    <description>Legrand$ : force brute sur l'espace client depuis $(srcip) (6 échecs en 2 min)</description>
+    <mitre><id>T1110.001</id></mitre>
+    <group>authentication_failures,attaque,</group>
+  </rule>
+
+  <rule id="100104" level="3">
+    <if_sid>100100</if_sid>
+    <field name="event">^login_success$</field>
+    <description>Legrand$ : connexion client réussie ($(srcuser)) depuis $(srcip)</description>
+    <group>authentication_success,</group>
+  </rule>
+
+  <rule id="100103" level="13" timeframe="300">
+    <if_sid>100104</if_sid>
+    <if_matched_sid>100102</if_matched_sid>
+    <same_srcip />
+    <description>Legrand$ : connexion RÉUSSIE après une force brute depuis $(srcip) — compte $(srcuser) probablement compromis</description>
+    <mitre><id>T1110.001</id><id>T1078</id></mitre>
+    <group>authentication_success,compromission,</group>
+  </rule>
+
+  <rule id="100111" level="12">
+    <if_sid>100100</if_sid>
+    <field name="event">^sql_error$</field>
+    <description>Legrand$ : erreur SQL provoquée par une entrée utilisateur (injection SQL probable) depuis $(srcip)</description>
+    <mitre><id>T1190</id></mitre>
+    <group>attack,sql_injection,attaque,</group>
+  </rule>
+
+  <rule id="100112" level="14">
+    <if_sid>100100</if_sid>
+    <field name="event">^search$</field>
+    <field name="query" type="pcre2">(?i)union\s+(all\s+)?select|sqlite_master|information_schema</field>
+    <description>Legrand$ : requête UNION exécutée avec succès — extraction de données probable depuis $(srcip)</description>
+    <mitre><id>T1190</id><id>T1005</id></mitre>
+    <group>attack,sql_injection,exfiltration,attaque,</group>
+  </rule>
+
+</group>
+
+<!-- ===================== Journaux d'accès web (Apache) ===================== -->
+<group name="legrand,web,accesslog,">
+
+  <rule id="100110" level="10">
+    <if_sid>31100</if_sid>
+    <url type="pcre2">(?i)(union(%20|\+|\s)+(all(%20|\+|\s)+)?select|(%27|')(%20|\+|\s)*or(%20|\+|\s)*(%27|')?\d|sqlite_master|information_schema|sleep\(|benchmark\()</url>
+    <description>Legrand SOC : motif d'injection SQL dans une URL depuis $(srcip)</description>
+    <mitre><id>T1190</id></mitre>
+    <group>attack,sql_injection,attaque,</group>
+  </rule>
+
+  <rule id="100120" level="10" frequency="12" timeframe="60">
+    <if_matched_sid>31101</if_matched_sid>
+    <same_srcip />
+    <description>Legrand SOC : balayage web depuis $(srcip) (nombreuses erreurs 4xx)</description>
+    <mitre><id>T1595.003</id></mitre>
+    <group>recon,web_scan,attaque,</group>
+  </rule>
+
+  <rule id="100121" level="8">
+    <if_sid>31100</if_sid>
+    <url type="pcre2">(?i)/(\.git|\.env|backup|phpmyadmin|server-status|db\.sql|config\.php\.bak)</url>
+    <description>Legrand SOC : recherche de fichiers sensibles ($(url)) depuis $(srcip)</description>
+    <mitre><id>T1595.003</id></mitre>
+    <group>recon,attaque,</group>
+  </rule>
+
+</group>
+
+<!-- ===================== Système (SSH, comptes, privilèges) ===================== -->
+<group name="legrand,syslog,">
+
+  <rule id="100130" level="13" timeframe="300">
+    <if_sid>5715</if_sid>
+    <if_matched_sid>5712</if_matched_sid>
+    <same_srcip />
+    <description>Legrand SOC : connexion SSH réussie après une force brute depuis $(srcip) (utilisateur $(dstuser))</description>
+    <mitre><id>T1110.001</id><id>T1021.004</id></mitre>
+    <group>authentication_success,compromission,attaque,</group>
+  </rule>
+
+  <rule id="100140" level="12">
+    <regex type="pcre2">add '[^']+' to (shadow )?group '(sudo|root|wheel|adm)'</regex>
+    <description>Legrand SOC : un compte a été ajouté à un groupe à privilèges</description>
+    <mitre><id>T1098</id><id>T1548.003</id></mitre>
+    <group>account_changed,privilege_escalation,attaque,</group>
+  </rule>
+
+</group>
+
+<!-- ===================== Intégrité des fichiers (FIM) ===================== -->
+<group name="legrand,syscheck,">
+
+  <rule id="100150" level="12">
+    <if_sid>554</if_sid>
+    <field name="file" type="pcre2">^/var/www/html/.*\.(php|phtml|phar)$</field>
+    <description>Legrand SOC : nouveau fichier PHP dans l'arborescence web ($(file)) — webshell possible</description>
+    <mitre><id>T1505.003</id></mitre>
+    <group>webshell,persistence,attaque,</group>
+  </rule>
+
+  <rule id="100151" level="10">
+    <if_sid>550</if_sid>
+    <field name="file" type="pcre2">^/etc/(sudoers|sudoers\.d/.*|passwd|group)$</field>
+    <description>Legrand SOC : modification d'un fichier de comptes ou de privilèges ($(file))</description>
+    <mitre><id>T1098</id></mitre>
+    <group>persistence,privilege_escalation,attaque,</group>
+  </rule>
+
+</group>

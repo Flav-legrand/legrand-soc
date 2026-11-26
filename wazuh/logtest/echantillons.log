@@ -1,0 +1,15 @@
+# Coller chaque ligne dans : /var/ossec/bin/wazuh-logtest
+# 1) Échec de connexion applicatif (100101), à répéter 6 fois pour 100102
+{"app":"legrand-bank","event":"login_failed","srcip":"172.20.0.9","url":"/index.php","srcuser":"amoukouama","timestamp":"2026-11-26T10:00:00+01:00"}
+# 2) Connexion réussie après la force brute (100104 puis 100103 si 100102 a été déclenchée)
+{"app":"legrand-bank","event":"login_success","srcip":"172.20.0.9","url":"/index.php","srcuser":"amoukouama","timestamp":"2026-11-26T10:01:00+01:00"}
+# 3) Erreur SQL (100111)
+{"app":"legrand-bank","event":"sql_error","srcip":"172.20.0.9","url":"/compte.php?q=%27","query":"'","error":"SQLSTATE[HY000]: General error: 1 unrecognized token"}
+# 4) UNION réussie (100112)
+{"app":"legrand-bank","event":"search","srcip":"172.20.0.9","url":"/compte.php","query":"%' UNION SELECT login,password,solde FROM clients--"}
+# 5) Motif SQLi dans l'accès Apache (100110)
+172.20.0.9 - - [26/Nov/2026:10:02:00 +0100] "GET /compte.php?q=%25%27%20UNION%20SELECT%20login,password,solde%20FROM%20clients-- HTTP/1.1" 200 1532 "-" "curl/8.9.1"
+# 6) Recherche de fichiers sensibles (100121)
+172.20.0.9 - - [26/Nov/2026:09:58:00 +0100] "GET /.git HTTP/1.1" 404 435 "-" "curl/8.9.1"
+# 7) Ajout au groupe sudo (100140)
+Nov 26 10:05:00 legrand-cible usermod[812]: add 'stagiaire' to group 'sudo'

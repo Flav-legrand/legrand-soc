@@ -1,0 +1,26 @@
+# Surcouche Legrand SOC, ajoutée à la pile officielle wazuh-docker (single-node)
+# par setup.sh. Les chemins utilisent la variable LEGRAND_SOC (racine de ce dépôt).
+services:
+  wazuh.manager:
+    volumes:
+      - ${LEGRAND_SOC}/wazuh/rules/legrand_rules.xml:/var/ossec/etc/rules/legrand_rules.xml:ro
+
+  cible:
+    build:
+      context: ${LEGRAND_SOC}/cible
+      args:
+        WAZUH_VERSION: ${WAZUH_VERSION:-4.14.6}
+    container_name: legrand-cible
+    hostname: legrand-cible
+    cap_add: [NET_ADMIN]          # nécessaire à la réponse active (iptables)
+    ports:
+      - "127.0.0.1:8081:80"       # application vulnérable : jamais exposée hors de la machine
+    depends_on: [wazuh.manager]
+    restart: unless-stopped
+
+  attaquant:
+    build: ${LEGRAND_SOC}/attaquant
+    container_name: legrand-attaquant
+    environment:
+      CIBLE: legrand-cible
+    depends_on: [cible]

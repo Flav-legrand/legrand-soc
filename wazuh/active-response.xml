@@ -1,0 +1,9 @@
+  <!-- ===== Legrand SOC : réponse active ===== -->
+  <!-- Blocage automatique (iptables) de l'IP source pendant 10 min sur la cible
+       en cas de force brute web (100102), de balayage (100120) ou de compromission SSH (100130). -->
+  <active-response>
+    <command>firewall-drop</command>
+    <location>local</location>
+    <rules_id>100102,100120,100130</rules_id>
+    <timeout>600</timeout>
+  </active-response>

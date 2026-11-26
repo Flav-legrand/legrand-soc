@@ -1,0 +1,8 @@
+# Les mots de passe faibles du laboratoire sont VOLONTAIRES (scénarios d'attaque)
+# et ne protègent aucune ressource réelle : ils sont exclus de l'analyse.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Identifiants fictifs du laboratoire volontairement vulnérable"
+paths = ['''cible/''', '''attaquant/scenarios/''', '''scripts/06-elevation-privileges\.sh''', '''wazuh/logtest/''']

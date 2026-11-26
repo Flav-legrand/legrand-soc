@@ -1,0 +1,78 @@
+# Pipeline DevSecOps : la sécurité intégrée dès la conception (ISO 27002 8.25, 8.29)
+name: DevSecOps
+on: [push, pull_request]
+
+permissions:
+  contents: read
+  security-events: write   # publication des résultats SARIF dans l'onglet « Security »
+
+jobs:
+  regles-wazuh:
+    name: Validation des règles de détection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: XML bien formé et identifiants uniques
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          s = open("wazuh/rules/legrand_rules.xml", encoding="utf-8").read()
+          root = ET.fromstring("<root>" + s + "</root>")
+          ids = [r.get("id") for r in root.iter("rule")]
+          assert len(ids) == len(set(ids)), "identifiants de règles en double"
+          assert all(100100 <= int(i) <= 100199 for i in ids), "identifiant hors plage réservée"
+          assert all(r.find("mitre") is not None or r.get("level") in ("0", "3") for r in root.iter("rule")), "règle sans MITRE"
+          print(f"{len(ids)} règles valides")
+          PY
+
+  scripts:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -S warning setup.sh scripts/*.sh attaquant/scenarios/*.sh cible/entrypoint.sh
+
+  dockerfiles:
+    name: Hadolint (bonnes pratiques Dockerfile)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { dockerfile: [cible/Dockerfile, attaquant/Dockerfile] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with: { dockerfile: "${{ matrix.dockerfile }}", failure-threshold: error }
+
+  secrets:
+    name: Gitleaks (secrets dans le code)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+
+  sast:
+    name: Semgrep (SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # L'application cible est VOLONTAIREMENT vulnérable : on attend ici la détection de
+      # l'injection SQL. Le job ne bloque pas le pipeline mais publie le rapport SARIF.
+      - name: Analyse
+        run: pipx run semgrep --config p/php --config p/owasp-top-ten --sarif -o semgrep.sarif cible/app || true
+      - uses: github/codeql-action/upload-sarif@v3
+        with: { sarif_file: semgrep.sarif, category: semgrep }
+
+  trivy:
+    name: Trivy (IaC et image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Analyse de configuration (Dockerfile, compose)
+        uses: aquasecurity/trivy-action@0.28.0
+        with: { scan-type: config, scan-ref: ., severity: "HIGH,CRITICAL", exit-code: "0", format: table }
+      - name: Construction de l'image cible
+        run: docker build -t legrand-cible:ci cible
+      - name: Vulnérabilités de l'image (bloquant sur CRITICAL corrigeable)
+        uses: aquasecurity/trivy-action@0.28.0
+        with: { image-ref: "legrand-cible:ci", severity: CRITICAL, ignore-unfixed: true, exit-code: "1", format: table }
